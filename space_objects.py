@@ -2,7 +2,6 @@ from __future__ import division
 from math import sin, cos, atan, pi, copysign
 import random
 import pygame
-#import pyjsdl as pygame
 import lines
 
 L_GRAY = ( 180, 180, 180)
