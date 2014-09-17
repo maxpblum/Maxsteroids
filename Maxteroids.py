@@ -93,7 +93,7 @@ while not done:
 
         for j in range(i + 1, len(objs)):
 
-            includes_laser = True in [ isinstance[ o, Laser ] for o in (objs[i], objs[j]) ]
+            includes_laser = True in [ isinstance( o, Laser ) for o in (objs[i], objs[j]) ]
 
             if includes_laser or not (objs[i].exploding or objs[j].exploding):
 
