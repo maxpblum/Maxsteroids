@@ -3,6 +3,7 @@ from space_objects import Ship, Laser, Asteroid, colliding, circ_colliding
 from math import pi
 from random import randint
 import pygame
+#import pyjsdl as pygame
 
 SW = 600
 SH = 600
