@@ -2,9 +2,13 @@ from __future__ import division
 from math import sin, cos, atan, pi, copysign
 import random
 import pygame
+from vector import vector
+import lines
 
 L_GRAY = ( 180, 180, 180)
 WHITE  = ( 255, 255, 255)
+YELLOW = ( 255, 255,   0)
+BLUE   = (   0,   0, 255)
 
 def point_between(a, p, b):
     if (a[0] <= p[0] <= b[0] or a[0] >= p[0] >= b[0]) and \
@@ -45,7 +49,7 @@ def rect_collision(rect1, rect2):
 
     return (x_col and y_col)
 
-def colliding(o1, o2):
+def obj_rect_colliding(o1, o2):
     o1rects = o1.rect_list()
     o2rects = o2.rect_list()
 
@@ -56,6 +60,63 @@ def colliding(o1, o2):
 
     return False
 
+def circ_colliding(o1, o2):
+    if max(abs(o1.x - o2.x), abs(o1.y - o2.y)) > o1.radius + o2.radius:
+        return False
+    else:
+        return True
+
+def ray_test(point, segs):
+    test_ray = lines.Ray([point[0] - 1, point[1]], point)
+    isects = 0
+    #isect_points = []
+    for s in segs:
+        i_p = s.Ray_isect(test_ray)
+        if i_p:
+            isects += 1
+            #isect_points.append(i_p)
+
+    if isects % 2 == 1:
+        #isect_points.insert(0, point)
+        return True
+
+def colliding(o1, o2):
+    # If both are lasers, this is super easy
+    if o1.particle and o2.particle:
+        return o1.x == o2.x and o1.y == o2.y
+
+    # See if they're even near each other
+    if circ_colliding(o1, o2):
+
+        pair = (o1, o2)
+
+        # ----- SEE IF ONE IS A LASER --------
+
+        for o in (0, 1):
+
+            if pair[o].particle:
+
+                return ray_test( [ pair[o].x, pair[o].y ], pair[o - 1].line_segs() )
+
+        # Ugh, test every point in each against the line segments in the other
+
+        for o in (0, 1):
+
+            for p in pair[o].points:
+
+                if ray_test( p, pair[o - 1].line_segs() ):
+                    return True
+
+class Highlighter:
+    def __init__(self, ray, points):
+        self.ray = ray
+        self.points = int_pointlist( points )
+
+    def draw(self, surface, color=YELLOW):
+        pygame.draw.line(surface, color, self.points[0], self.points[-1], 1)
+        for p in self.points:
+            pygame.draw.circle(surface, BLUE, p, 2)
+
 
 class MaxShape(object):
     def __init__(self, loc, angle, surface, scale=1):
@@ -65,9 +126,12 @@ class MaxShape(object):
         self.scale = scale
         self.surface = surface
         self.v = [0, 0]
+        self.radius = self.RADIUS
+        self.exploding = False
 
     def draw(self, surface, color):
         pass
+        #pygame.draw.circle(surface, L_GRAY, int_point([self.x, self.y]), int(self.radius), 1)
 
     def move(self, x, y):
         self.x += x
@@ -92,22 +156,14 @@ class MaxShape(object):
     def __rect__(self):
         pass
 
-    def rect_list(self):
-        return [self.__rect__()]
-
-    def draw(self):
-        pass
-        # for r in self.rect_list():
-        #     r_points = [ [r[0], r[1]], [r[0] + r[2], r[1]],
-        #                  [r[0] + r[2], r[1] + r[3]], [r[0], r[1] + r[3]]  ]
-        #     pygame.draw.polygon(self.surface, L_GRAY, r_points, 1)
+   
 
 
 class MaxPoly(MaxShape):
     def __init__(self, loc, angle, surface, scale=1):
         MaxShape.__init__(self, loc, angle, surface, scale)
         self.points = []
-        self.exploding = False
+        self.particle = False
 
     def __move_points__(self, x, y):
         self.points = [[p[0] + x, p[1] + y] for p in self.points]
@@ -137,35 +193,47 @@ class MaxPoly(MaxShape):
 
         return [min_x, min_y, max_x - min_x, max_y - min_y]
 
-    def rect_list(self):
-        rsize = 5
-        rects = []
-        for i in range(len(self.points)):
-            cur_p = self.points[i]
-            next_p = self.points[(i + 1) % len(self.points)]
-            if next_p[0] == cur_p[0]:
-                rects.append([cur_p[0] - rsize / 2, cur_p[1],
-                             rsize, next_p[1] - cur_p[1]])
-            else:
-                slope = (next_p[1] - cur_p[1]) / (next_p[0] - cur_p[0])
-                new_p = cur_p
-                x_decreasing = (next_p[0] < cur_p[0])
-                while (new_p[0] > next_p[0] if x_decreasing else new_p[0] < next_p[0]):
-                    if x_decreasing:
-                        rect_p = [new_p[0] - rsize]
-                        rect_p.append(new_p[1] - rsize * slope)
-                        rects.append([rect_p[0], rect_p[1], rsize, rsize * slope])
-                        new_p = rect_p
-                    else:
-                        rects.append([new_p[0], new_p[1], rsize, rsize * slope])
-                        new_p = [new_p[0] + rsize, new_p[1] + rsize * slope]
-                if x_decreasing:
-                    y_correction = next_p[1] - rects[-1][1]
-                    rects[-1][1] += y_correction
-                    rects[-1][3] -= y_correction
-                else:
-                    rects[-1][3] = next_p[1] - rects[-1][1]
-        return rects
+    def __circ__(self):
+        pass
+
+    def convex_points(self):
+        return self.points[:]
+
+    def normals(self):
+        conp = self.convex_points()
+        for i in range( len( conp ) ):
+            yield vector( conp[i][1] - conp[i - 1][1],
+                          conp[i - 1][0] - conp[i][0] )
+
+    def line_segs(self):
+        return [lines.Line_Seg( self.points[ i ],
+                                self.points[ i - 1 ], ) \
+                 for i in range(len(self.points)) ]
+
+        # for a generator version:
+        # for i in range(len(self.points)):
+        #     yield lines.Line_Seg( self.points[ i ], 
+        #                           self.points[ i - 1 ] )
+
+    def bounce(o1, o2, m1=1, m2=1):
+
+        oldvx1 = o1.v[0]
+        oldvx2 = o2.v[0]
+        oldvy1 = o1.v[1]
+        oldvy2 = o2.v[1]
+
+        newvx1 = (oldvx1 * (m1 - m2) + \
+                         oldvx2 * 2 * m2) / (m1 + m2)
+        newvx2 = (oldvx2 * (m2 - m1) + \
+                         oldvx1 * 2 * m1) / (m2 + m1)
+        newvy1 = (oldvy1 * (m1 - m2) + \
+                         oldvy2 * 2 * m2) / (m1 + m2)
+        newvy2 = (oldvy2 * (m2 - m1) + \
+                         oldvy1 * 2 * m1) / (m2 + m1)
+
+        o1.v = [newvx1, newvy1]
+        o2.v = [newvx2, newvy2]
+
 
 class Laser(MaxShape):
     DEFAULT_SPEED = 500
@@ -179,6 +247,7 @@ class Laser(MaxShape):
                             self.surface.get_height()) * 0.9
         self.kill_after = self.LIFESPAN / self.speed
         self.life = 0
+        self.particle = True
 
     def inertia(self, dt):
         MaxShape.inertia(self, dt)
@@ -207,6 +276,7 @@ class Ship(MaxPoly):
     EXPLODE_DOTS = 8
     EXPLODE_RADIUS = 0.75 * SEG
     EXPLODE_ROTATION = 2
+    RADIUS = 2 * SEG
 
     def __init__(self, loc, angle, surface, scale=1):
 
@@ -215,6 +285,8 @@ class Ship(MaxPoly):
         self.angle += pi
         self.SEG *= self.scale
         self.__init_points__()
+
+        self.explode_time = 0
 
     def __init_points__(self):
         ''' Top, bottom left, bottom right'''
@@ -229,7 +301,7 @@ class Ship(MaxPoly):
         else:
             for d in int_pointlist( self.dots ):
                 pygame.draw.circle(surface, color, d, 0)
-        MaxShape.draw(self)
+        MaxShape.draw(self, surface, color)
 
     def accel(self, dt):
         v_change = rotate((0, -self.ACCEL * dt), self.angle)
@@ -265,7 +337,6 @@ class Ship(MaxPoly):
         MaxPoly.explode(self)
         self.v = [0, 0]
         self.dots = []
-        self.explode_time = 0
         for i in range(self.EXPLODE_DOTS):
             angle = (i / self.EXPLODE_DOTS) * (2 * pi)
             self.dots.append( rotate( (self.x + self.EXPLODE_RADIUS, self.y),
@@ -278,12 +349,15 @@ class Asteroid(MaxPoly):
     AVG_CHILD_V = 10
     MAX_GENERATIONS = 5
     MIN_SIDES = 4
+    RADIUS = 70
+    CHILD_SCALE = 2/3
 
     def __init__(self, loc, angle, surface, generation=0, scale=1):
+        self.RADIUS = Asteroid.RADIUS * ((self.CHILD_SCALE) ** generation)
         MaxPoly.__init__(self, loc, angle, surface, scale)
         self.generation = generation
         self.SIDES = max( self.MIN_SIDES, self.SIDES - self.generation )
-        self.AVG_SIDE = Asteroid.AVG_SIDE * ((2/3) ** generation)
+        self.AVG_SIDE = Asteroid.AVG_SIDE * ((self.CHILD_SCALE) ** generation)
         self.turtle_rotate = (2 * pi) / self.SIDES
         self.turtledraw_points()
         self.fix_center()
@@ -292,22 +366,7 @@ class Asteroid(MaxPoly):
         m1 = 1 / (ast1.generation + 1)
         m2 = 1 / (ast2.generation + 1)
 
-        oldvx1 = ast1.v[0]
-        oldvx2 = ast2.v[0]
-        oldvy1 = ast1.v[1]
-        oldvy2 = ast2.v[1]
-
-        newvx1 = (oldvx1 * (m1 - m2) + \
-                         oldvx2 * 2 * m2) / (m1 + m2)
-        newvx2 = (oldvx2 * (m2 - m1) + \
-                         oldvx1 * 2 * m1) / (m2 + m1)
-        newvy1 = (oldvy1 * (m1 - m2) + \
-                         oldvy2 * 2 * m2) / (m1 + m2)
-        newvy2 = (oldvy2 * (m2 - m1) + \
-                         oldvy1 * 2 * m1) / (m2 + m1)
-
-        ast1.v = [newvx1, newvy1]
-        ast2.v = [newvx2, newvy2]
+        MaxPoly.bounce(ast1, ast2, m1, m2)
 
     def inertia(self, dt):
         if self.exploding:
@@ -327,10 +386,12 @@ class Asteroid(MaxPoly):
                                                  self.points[-1],
                                                  self.points[0] ) )
 
+    def convex_points(self):
+        return self.points[:-1]
+
     def draw(self, surface, color=L_GRAY):
         pygame.draw.polygon(surface, WHITE, int_pointlist(self.points), 1)
-        # pygame.draw.circle(surface, WHITE, int_point((self.x, self.y)), 2)
-        MaxShape.draw(self)
+        MaxShape.draw(self, surface, color)
 
     def __add_crater__(self, p1, p2, p3):
 
@@ -378,26 +439,26 @@ class Asteroid(MaxPoly):
 
         if self.generation < self.MAX_GENERATIONS:
 
-            child_v_1 = [ random.uniform(-1.5 * self.AVG_CHILD_V, 1.5 * self.AVG_CHILD_V),
-                          random.uniform(-1.5 * self.AVG_CHILD_V, 1.5 * self.AVG_CHILD_V) ]
-            child_v_2 = [ random.uniform(-1.5 * self.AVG_CHILD_V, 1.5 * self.AVG_CHILD_V),
-                          random.uniform(-1.5 * self.AVG_CHILD_V, 1.5 * self.AVG_CHILD_V) ]
+            # -------- NEW SPOTS -----------------
 
-            child_v_2 = [ copysign( child_v_2[0], -child_v_1[0] ),
-                          copysign( child_v_2[1], -child_v_1[1] ) ]
+            child_rad = self.radius * self.CHILD_SCALE
+            child_spot = rotate( [ child_rad, 0 ], random.uniform(0, pi) )
 
-            new_ast_1 = Asteroid( (self.x, self.y), 0,
+            # ---------- MAKE NEW ASTEROIDS ------------------
+
+            new_ast_1 = Asteroid( (self.x + child_spot[0], self.y + child_spot[1]), 0,
                                     self.surface, generation = self.generation + 1 )
 
-            new_ast_1.move( child_v_1[0] * 1.5, child_v_1[1] * 1.5)
 
-            new_ast_2 = Asteroid( (self.x, self.y), 0,
+            new_ast_2 = Asteroid( (self.x - child_spot[0], self.y - child_spot[1]), 0,
                                     self.surface, generation = self.generation + 1 )
 
-            new_ast_2.move( child_v_2[0] * 1.5, child_v_2[1] * 1.5)
+            # ------------- VELOCITIES ------------------------
 
-            new_ast_1.v = child_v_1
-            new_ast_2.v = child_v_2
+            multiplier = random.uniform(1, 2)
+
+            new_ast_1.v = [ child_spot[0] * multiplier,  child_spot[1] * multiplier]
+            new_ast_2.v = [-child_spot[0] * multiplier, -child_spot[1] * multiplier]
 
             return [new_ast_1, new_ast_2]
 
@@ -408,16 +469,32 @@ class Asteroid(MaxPoly):
         return [random.randint(-self.AVG_CHILD_V, self.AVG_CHILD_V),
                 random.randint(-self.AVG_CHILD_V, self.AVG_CHILD_V)]
 
-# class Half_Asteroid(Asteroid):
-#     SIDES = Asteroid.SIDES - 1
-#     AVG_SIDE = Asteroid.AVG_SIDE / 2
+class Circle_Asteroid(Asteroid):
+    RADIUS = 50
+    VERTICES = 6
 
-# class Quarter_Asteroid(Half_Asteroid):
-#     SIDES = Asteroid.SIDES - 1
-#     AVG_SIDE = Asteroid.AVG_SIDE / 2
+    def __init__(self, loc, angle, surface, generation=0, scale=1):
+        self.RADIUS *= scale
+        MaxPoly.__init__(self, loc, angle, surface, scale)
+        self.convices = self.generate_vertices()
+        self.points = self.convices[:]
+        self.__move_points__(self.x, self.y)
 
-# class Eighth_Asteroid(Quarter_Asteroid):
-#     AVG_SIDE = Quarter_Asteroid.AVG_SIDE / 2
+    def generate_vertices(self):
 
-# class Sixteenth_Asteroid(Eighth_Asteroid):
-#     AVG_SIDE = Eighth_Asteroid.AVG_SIDE / 2
+        v = self.VERTICES
+        angles = []
+        total_angle = 0
+
+        while v > 0:
+            new_p = random.random() * (2 * pi - total_angle) / v
+            total_angle += new_p
+            angles.append(total_angle)
+            v -= 1
+
+        return [ rotate( (0, self.RADIUS), a ) for a in proportions ]
+
+    def convex_points(self):
+        return self.convices[:]
+
+
