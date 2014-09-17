@@ -1,5 +1,5 @@
 from __future__ import division
-from ship import Ship, Laser, Asteroid, colliding, circ_colliding
+from space_objects import Ship, Laser, Asteroid, colliding, circ_colliding
 from math import pi
 from random import randint
 import pygame
