@@ -7,9 +7,9 @@ Runs on Python 2.x and Pygame (see requirements.txt)
 
 Controls
 --------
-Left+Right: Rotate ship
-Up: Accelerate
-Spacebar: Fire laser
-Enter: Hyperspace
+* Left+Right: Rotate ship
+* Up: Accelerate
+* Spacebar: Fire laser
+* Enter: Hyperspace
 
 ![Sample clip](https://raw.githubusercontent.com/maxpblum/Maxsteroids/master/demo.gif)
