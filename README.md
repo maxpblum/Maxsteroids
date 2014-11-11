@@ -5,4 +5,11 @@ An imitation of a classic arcade game, created in order to learn Pygame. This wa
 
 Runs on Python 2.x and Pygame (see requirements.txt)
 
+Controls
+--------
+Left+Right: Rotate ship
+Up: Accelerate
+Spacebar: Fire laser
+Enter: Hyperspace
+
 ![Sample clip](https://raw.githubusercontent.com/maxpblum/Maxsteroids/master/demo.gif)
