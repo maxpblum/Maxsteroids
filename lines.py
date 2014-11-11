@@ -73,7 +73,7 @@ class Ray(Line):
 
     def Line_isect(r, l):
         p = Line.Line_isect(r, l)
-        if p[1]:
+        if p:
             # This depends on my Line.Line_isect implementation,
             # which uses the get_y method of its first argument-line
             # (which is a ray here) to determine the y-coordinate of

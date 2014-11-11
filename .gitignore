@@ -3,5 +3,7 @@
 testast.py
 geom.py
 vector.py
+input.py
+demo.mov
 
 .DS_Store

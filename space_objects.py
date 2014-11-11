@@ -4,10 +4,14 @@ import random
 import pygame
 import lines
 
-L_GRAY = ( 180, 180, 180)
+ROUTE_THREE_OVER_TWO = (3 ** 0.5) / 2
+
+#L_GRAY = ( 180, 180, 180)
 WHITE  = ( 255, 255, 255)
+L_GRAY = WHITE
 YELLOW = ( 255, 255,   0)
 BLUE   = (   0,   0, 255)
+BLACK  = (   0,   0,   0)
 
 def point_between(a, p, b):
     if (a[0] <= p[0] <= b[0] or a[0] >= p[0] >= b[0]) and \
@@ -80,6 +84,10 @@ def ray_test(point, segs):
         return True
 
 def colliding(o1, o2):
+
+    if o1.exploding or o2.exploding:
+        return False
+
     # If both are lasers, this is super easy
     if o1.particle and o2.particle:
         return o1.x == o2.x and o1.y == o2.y
@@ -91,11 +99,11 @@ def colliding(o1, o2):
 
         # ----- SEE IF ONE IS A LASER --------
 
-        for o in (0, 1):
+        for o, other in ((o1, o2), (o2, o1)):
 
-            if pair[o].particle:
+            if o.particle:
 
-                return ray_test( [ pair[o].x, pair[o].y ], pair[o - 1].line_segs() )
+                return ray_test( [ o.x, o.y ], other.line_segs() )
 
         # Ugh, test every point in each against the line segments in the other
 
@@ -150,9 +158,11 @@ class MaxShape(object):
         self.move(self.v[0] * dt, self.v[1] * dt)
 
     def explode(self):
+        raise NotImplementedError
         pass
 
     def __rect__(self):
+        raise NotImplementedError
         pass
 
    
@@ -164,12 +174,13 @@ class MaxPoly(MaxShape):
         self.points = []
         self.particle = False
 
-    def __move_points__(self, x, y):
+    def _move_points(self, x, y):
         self.points = [[p[0] + x, p[1] + y] for p in self.points]
 
     def move(self, x, y):
-        self.__move_points__(x, y)
-        MaxShape.move(self, x, y)
+        super(MaxPoly, self).move(x, y)
+        self._move_points(x, y)
+        
 
     def explode(self):
         self.exploding = True
@@ -193,6 +204,7 @@ class MaxPoly(MaxShape):
         return [min_x, min_y, max_x - min_x, max_y - min_y]
 
     def __circ__(self):
+        raise NotImplementedError
         pass
 
     def convex_points(self):
@@ -206,7 +218,7 @@ class MaxPoly(MaxShape):
 
     def line_segs(self):
         return [lines.Line_Seg( self.points[ i ],
-                                self.points[ i - 1 ], ) \
+                                self.points[ i - 1 ], ) 
                  for i in range(len(self.points)) ]
 
         # for a generator version:
@@ -221,13 +233,13 @@ class MaxPoly(MaxShape):
         oldvy1 = o1.v[1]
         oldvy2 = o2.v[1]
 
-        newvx1 = (oldvx1 * (m1 - m2) + \
+        newvx1 = (oldvx1 * (m1 - m2) +
                          oldvx2 * 2 * m2) / (m1 + m2)
-        newvx2 = (oldvx2 * (m2 - m1) + \
+        newvx2 = (oldvx2 * (m2 - m1) + 
                          oldvx1 * 2 * m1) / (m2 + m1)
-        newvy1 = (oldvy1 * (m1 - m2) + \
+        newvy1 = (oldvy1 * (m1 - m2) + 
                          oldvy2 * 2 * m2) / (m1 + m2)
-        newvy2 = (oldvy2 * (m2 - m1) + \
+        newvy2 = (oldvy2 * (m2 - m1) + 
                          oldvy1 * 2 * m1) / (m2 + m1)
 
         o1.v = [newvx1, newvy1]
@@ -238,9 +250,9 @@ class Laser(MaxShape):
     DEFAULT_SPEED = 500
     RADIUS = 1
 
-    def __init__(self, loc, angle, surface, v = DEFAULT_SPEED, scale=1):
+    def __init__(self, loc, angle, surface, s = DEFAULT_SPEED, scale=1):
         MaxShape.__init__(self, loc, angle, surface, scale)
-        self.speed = v
+        self.speed = s
         self.v = rotate((self.speed, 0), self.angle)
         self.LIFESPAN = min(self.surface.get_width(),
                             self.surface.get_height()) * 0.9
@@ -276,6 +288,7 @@ class Ship(MaxPoly):
     EXPLODE_RADIUS = 0.75 * SEG
     EXPLODE_ROTATION = 2
     RADIUS = 2 * SEG
+    HYPERSPACE_LENGTH = 0.5
 
     def __init__(self, loc, angle, surface, scale=1):
 
@@ -286,25 +299,33 @@ class Ship(MaxPoly):
         self.__init_points__()
 
         self.explode_time = 0
+        self.hyperspace_time = 0
+        self.warping = False
+        self.hyperspace_dx = surface.get_width() * 2
+        self.hyperspace_dy = surface.get_height() * 2
+
+        self.invis = False
 
     def __init_points__(self):
         ''' Top, bottom left, bottom right'''
         self.points = ([0, -2 * self.SEG], [-self.SEG, self.SEG],
                            [self.SEG, self.SEG])
-        self.__move_points__(self.x, self.y)
+        self._move_points(self.x, self.y)
         self.points = multi_rotate(self.points, self.angle, (self.x, self.y))
 
     def draw(self, surface, color=L_GRAY):
-        if not self.exploding:
-            pygame.draw.polygon(surface, color, int_pointlist(self.points), 1)
-        else:
-            for d in int_pointlist( self.dots ):
-                pygame.draw.circle(surface, color, d, 0)
-        MaxShape.draw(self, surface, color)
+        if not self.invis:
+            if not self.exploding:
+                pygame.draw.polygon(surface, color, int_pointlist(self.points), 1)
+            else:
+                for d in int_pointlist( self.dots ):
+                    pygame.draw.circle(surface, color, d, 0)
+            MaxShape.draw(self, surface, color)
 
     def accel(self, dt):
-        v_change = rotate((0, -self.ACCEL * dt), self.angle)
-        self.v = [v_change[0] + self.v[0], v_change[1] + self.v[1]]
+        if not self.warping:
+            v_change = rotate((0, -self.ACCEL * dt), self.angle)
+            self.v = [v_change[0] + self.v[0], v_change[1] + self.v[1]]
 
     def rotate_left(self, dt):
         angle_change = (dt * self.__RSPEED__)
@@ -323,11 +344,23 @@ class Ship(MaxPoly):
         return Laser((self.x + point[0], self.y + point[1]), self.angle + (pi / 2), self.surface)
 
     def inertia(self, dt):
-        if not self.exploding:
+        if not (self.exploding or self.warping):
             MaxPoly.inertia(self, dt)
+        elif self.warping and not self.exploding:
+            if self.hyperspace_time > self.HYPERSPACE_LENGTH:
+                new_x, new_y = (random.randrange(n) 
+                          for n in (self.surface.get_width(), 
+                                    self.surface.get_height()))
+                self.move(new_x - self.x, new_y - self.y)
+                self.rotate_right(random.random() * pi / self.__RSPEED__)
+                self.warping = False
+            else:
+                self.hyperspace_time += dt
         else:
+            assert self.exploding
             self.explode_time += dt
             if self.explode_time > self.EXPLODE_LENGTH:
+                self.invis = True
                 return 666
             angle_change = self.EXPLODE_ROTATION * dt
             self.dots = multi_rotate( self.dots, angle_change, [self.x, self.y] )
@@ -341,12 +374,262 @@ class Ship(MaxPoly):
             self.dots.append( rotate( (self.x + self.EXPLODE_RADIUS, self.y),
                                        angle, [self.x, self.y]) )
 
+    def hyperspace(self):
+
+        self.v = [0, 0]
+        self.x += self.hyperspace_dx
+        self.y += self.hyperspace_dy
+        self._move_points(self.hyperspace_dx,
+                          self.hyperspace_dy)
+        self.warping = True
+        self.hyperspace_time = 0
+
+class Ufo(MaxPoly):
+    SEG = 5
+    WING_W = SEG
+    WING_H = 8 * SEG
+    CON_W = 2 * SEG
+    CON_H = SEG
+    CP_RAD = 2.4 * SEG
+    CP_DY = ROUTE_THREE_OVER_TWO * CP_RAD
+    WINDOW_RAD = 0.75 * CP_RAD
+    WINDOW_DY = ROUTE_THREE_OVER_TWO * WINDOW_RAD
+    WIDTH = (2 * WING_W) + (2 * CON_W) + (2 * CP_RAD)
+    HEIGHT = WING_H
+    RADIUS = (((WIDTH / 2) ** 2) + ((HEIGHT / 2) ** 2)) ** 0.5
+    TIME_TO_CHANGE = 8
+    AVG_FIRING_SPEED = 2
+    SPEED = 100
+
+    def __init__(self, loc, angle, surface, asteroids, good_guy, scale=1):
+        super(Ufo, self).__init__(loc, angle, surface, scale)
+
+        self.shapes = []
+        self._set_points()
+        self.asteroids = asteroids
+        self.good_guy = good_guy
+        self.set_v()
+        self.time_since_dir_change = 0
+        self.until_next_laser = self.time_to_next_laser()
+
+    def random_v(self):
+        return rotate((self.SPEED, 0), random.uniform(0, 2 * pi))
+
+    def set_v(self):
+        new_v = None
+        while True:
+            new_v = self.random_v()
+            if not self.watch_out(new_v):
+                self.v = new_v
+                return None
+
+    def watch_out(self, v):
+        collision = False
+        test_laser = Laser([self.x + v[0], self.y + v[1]], 0, self.surface)
+        for a in self.asteroids:
+            if colliding(test_laser, a):
+                return True
+
+    def _wing_points(self, cur_x):
+        points = []
+
+        points.append( [cur_x, self.y - self.WING_H / 2] )
+        points.append( [cur_x, self.y + self.WING_H / 2] )
+
+        cur_x += self.WING_W
+
+        points.append( [cur_x, self.y + self.WING_H / 2] )
+        points.append( [cur_x, self.y - self.WING_H / 2] )
+
+        return points
+
+    def _connector_points(self, cur_x):
+        points = []
+
+        points.append( [cur_x, self.y - self.CON_H / 2] )
+        points.append( [cur_x, self.y + self.CON_H / 2] )
+
+        cur_x += self.CON_W
+
+        points.append( [cur_x, self.y + self.CON_H / 2] )
+        points.append( [cur_x, self.y - self.CON_H / 2] )
+
+        return points
+
+    def _cockpit_points(self, cur_x):
+        points = []
+
+        points.append( [cur_x, self.y] )
+
+        points.append( [cur_x, self.y + self.CON_H / 2] )
+
+        cur_x += self.CP_RAD / 2
+        points.append( [cur_x, self.y + self.CP_DY] )
+
+        cur_x += self.CP_RAD
+        points.append( [cur_x, self.y + self.CP_DY] )
+
+        cur_x += self.CP_RAD / 2
+        points.append( [cur_x, self.y] )
+        # Now we're all the way on the right
+
+        cur_x -= self.CP_RAD / 2
+        points.append( [cur_x, self.y - self.CP_DY] )
+
+        cur_x -= self.CP_RAD
+        points.append( [cur_x, self.y - self.CP_DY] )
+
+        cur_x -= self.CP_RAD / 2
+        points.append( [cur_x, self.y - self.CON_H / 2] )
+
+        return points
+
+    def _window_points(self, cur_x):
+        points = []
+
+        points.append( [cur_x, self.y] )
+
+        cur_x += self.WINDOW_RAD / 2
+        points.append( [cur_x, self.y + self.WINDOW_DY] )
+
+        cur_x += self.WINDOW_RAD
+        points.append( [cur_x, self.y + self.WINDOW_DY] )
+
+        cur_x += self.WINDOW_RAD / 2
+        points.append( [cur_x, self.y] )
+        # Now we're all the way on the right
+
+        cur_x -= self.WINDOW_RAD / 2
+        points.append( [cur_x, self.y - self.WINDOW_DY] )
+
+        cur_x -= self.WINDOW_RAD
+        points.append( [cur_x, self.y - self.WINDOW_DY] )
+
+        return points
+
+    def _set_points(self):
+
+        self.shapes = []
+
+        cur_x = self.x - (self.CP_RAD + self.CON_W + self.WING_W)
+
+        self.shapes.append( self._wing_points(cur_x) )
+        cur_x += self.WING_W
+
+        self.shapes.append( self._connector_points(cur_x) )
+        cur_x += self.CON_W
+
+        self.shapes.append( self._cockpit_points(cur_x) )
+        cur_x += (self.CP_RAD - self.WINDOW_RAD)
+
+        # Now we update the window, which we don't use in collision detection
+        self.window_points = self._window_points(cur_x)
+        cur_x += self.WINDOW_RAD + self.CP_RAD
+
+        self.shapes.append( self._connector_points(cur_x) )
+        cur_x += self.CON_W
+
+        self.shapes.append( self._wing_points(cur_x) )
+        cur_x += self.WING_W
+
+    def draw(self, surface, color=L_GRAY):
+        
+        for shape in self.shapes:
+            pygame.draw.polygon(surface, color, int_pointlist(shape))
+
+        pygame.draw.polygon(surface, BLACK, int_pointlist(self.window_points))
+
+    def _move_points(self, x, y):
+        for s in self.shapes:
+            for p in s:
+                p[0] += x
+                p[1] += y
+
+        for p in self.window_points:
+            p[0] += x
+            p[1] += y
+
+    def outer_points(self):
+        l_wing, l_con, cp, r_con, r_wing = self.shapes
+
+        return [ l_wing[0], 
+                 l_wing[1], 
+                 l_wing[2], 
+                 l_con[1],
+                 l_con[2],
+                 cp[2],
+                 cp[3],
+                 cp[4],
+                 r_con[2],
+                 r_wing[1],
+                 r_wing[2],
+                 r_wing[3],
+                 r_wing[0],
+                 r_con[3],
+                 r_con[0],
+                 cp[5],
+                 cp[6],
+                 l_con[3],
+                 l_con[0],
+                 l_wing[3] ]
+
+    def line_segs(self):
+        op = self.outer_points()
+
+        return [lines.Line_Seg( op[ i ],
+                                op[ i - 1 ], ) 
+                 for i in range(len(op)) ]
+
+        # segs = []
+        # for shape in self.shapes:
+        #     for i in range(len(shape)):
+        #         segs.append( lines.Line_Seg( shape[i], shape[i - 1] ) )
+
+        # return segs
+
+    def inertia(self, dt):
+        if self.exploding:
+            return 666
+        self.time_since_dir_change += dt
+        self.until_next_laser -= dt
+        if self.watch_out(self.v):
+            self.set_v()
+        if self.time_since_dir_change > self.TIME_TO_CHANGE:
+            self.set_v()
+            self.time_since_dir_change = 0
+        super(Ufo, self).inertia(dt)
+        if self.until_next_laser <= 0:
+            self.until_next_laser = self.time_to_next_laser()
+            return self.fire()
+
+
+    def time_to_next_laser(self):
+        return random.uniform(self.AVG_FIRING_SPEED * 0.6,
+                              self.AVG_FIRING_SPEED * 1.4)
+
+    def fire(self):
+        distance = [self.good_guy.x - self.x,
+                    self.good_guy.y - self.y]
+
+        theta = atan(distance[1] / distance[0])
+
+        if distance[0] < 0:
+            theta += pi
+
+        laser_spot = rotate([self.x + self.RADIUS, self.y], 
+                            theta, [self.x, self.y])
+        laser = Laser(laser_spot, theta, self.surface, Laser.DEFAULT_SPEED)
+        laser.v = distance
+        return laser
+
+        
+
 
 class Asteroid(MaxPoly):
     SIDES = 6
     AVG_SIDE = 50
     AVG_CHILD_V = 10
-    MAX_GENERATIONS = 5
+    MAX_GENERATIONS = 4
     MIN_SIDES = 4
     RADIUS = 70
     CHILD_SCALE = 2/3
@@ -468,6 +751,7 @@ class Asteroid(MaxPoly):
         return [random.randint(-self.AVG_CHILD_V, self.AVG_CHILD_V),
                 random.randint(-self.AVG_CHILD_V, self.AVG_CHILD_V)]
 
+
 class Circle_Asteroid(Asteroid):
     RADIUS = 50
     VERTICES = 6
@@ -477,7 +761,7 @@ class Circle_Asteroid(Asteroid):
         MaxPoly.__init__(self, loc, angle, surface, scale)
         self.convices = self.generate_vertices()
         self.points = self.convices[:]
-        self.__move_points__(self.x, self.y)
+        self._move_points(self.x, self.y)
 
     def generate_vertices(self):
 
